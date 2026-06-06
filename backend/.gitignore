@@ -6,3 +6,5 @@ node3_shares.db
 
 uvicorn.err.log
 uvicorn.out.log
+
+.gitignore
