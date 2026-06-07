@@ -1,6 +1,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { randomBytes, randomUUID } from "node:crypto";
+import { Redis } from "@upstash/redis";
 
 const NODE_IDS = ["node1", "node2", "node3"] as const;
 export type NodeId = (typeof NODE_IDS)[number];
@@ -65,6 +66,25 @@ const dataDir =
   (process.env.VERCEL ? join("/tmp", "protocol-final") : join(process.cwd(), ".data"));
 
 const dataPath = join(dataDir, "chat_archive.json");
+const redisStoreKey = process.env.PROTOCOL_REDIS_STORE_KEY || "protocol-final:store";
+
+let redisClient: Redis | null | undefined;
+
+function getRedisClient() {
+  if (redisClient !== undefined) return redisClient;
+
+  const url =
+    process.env.UPSTASH_REDIS_REST_URL ||
+    process.env.KV_REST_API_URL ||
+    process.env.REDIS_REST_API_URL;
+  const token =
+    process.env.UPSTASH_REDIS_REST_TOKEN ||
+    process.env.KV_REST_API_TOKEN ||
+    process.env.REDIS_REST_API_TOKEN;
+
+  redisClient = url && token ? new Redis({ url, token }) : null;
+  return redisClient;
+}
 
 function nowIso() {
   return new Date().toISOString();
@@ -74,7 +94,21 @@ function makeError(status: number, detail: string): ApiError {
   return { status, detail };
 }
 
-function loadStore(): Store {
+async function loadStore(): Promise<Store> {
+  const redis = getRedisClient();
+  if (redis) {
+    const stored = await redis.get<Store>(redisStoreKey);
+    if (!stored) return emptyStore();
+    return {
+      ...emptyStore(),
+      ...stored,
+      nodes: {
+        ...emptyStore().nodes,
+        ...(stored.nodes || {}),
+      },
+    };
+  }
+
   try {
     const parsed = JSON.parse(readFileSync(dataPath, "utf8")) as Store;
     return {
@@ -90,7 +124,13 @@ function loadStore(): Store {
   }
 }
 
-function saveStore(store: Store) {
+async function saveStore(store: Store) {
+  const redis = getRedisClient();
+  if (redis) {
+    await redis.set(redisStoreKey, store);
+    return;
+  }
+
   mkdirSync(dirname(dataPath), { recursive: true });
   writeFileSync(dataPath, JSON.stringify(store, null, 2), "utf8");
 }
@@ -170,8 +210,8 @@ export function handleApiError(error: unknown) {
   return { status: 500, body: { detail: "Internal server error" } };
 }
 
-export function listRooms() {
-  const store = loadStore();
+export async function listRooms() {
+  const store = await loadStore();
   return {
     rooms: store.rooms
       .filter((room) => room.destroyed_at === null)
@@ -180,8 +220,8 @@ export function listRooms() {
   };
 }
 
-export function createRoom(data: Record<string, unknown>) {
-  const store = loadStore();
+export async function createRoom(data: Record<string, unknown>) {
+  const store = await loadStore();
   const createdAt = nowIso();
   const owner = assertString(data.owner, "owner", 1, 24);
   const password = typeof data.password === "string" && data.password.trim() ? data.password.trim() : null;
@@ -197,12 +237,12 @@ export function createRoom(data: Record<string, unknown>) {
 
   store.rooms.push(room);
   store.room_members.push({ room_id: room.id, nickname: owner, joined_at: createdAt, active: true });
-  saveStore(store);
+  await saveStore(store);
   return { room: roomSummary(store, room) };
 }
 
-export function joinRoom(roomId: string, data: Record<string, unknown>) {
-  const store = loadStore();
+export async function joinRoom(roomId: string, data: Record<string, unknown>) {
+  const store = await loadStore();
   const room = requireActiveRoom(store, roomId);
   const nickname = assertString(data.nickname, "nickname", 1, 24);
   const password = typeof data.password === "string" ? data.password : "";
@@ -221,12 +261,12 @@ export function joinRoom(roomId: string, data: Record<string, unknown>) {
   } else {
     store.room_members.push({ room_id: roomId, nickname, joined_at: nowIso(), active: true });
   }
-  saveStore(store);
+  await saveStore(store);
   return { room: roomSummary(store, room) };
 }
 
-export function kickMember(roomId: string, data: Record<string, unknown>) {
-  const store = loadStore();
+export async function kickMember(roomId: string, data: Record<string, unknown>) {
+  const store = await loadStore();
   const room = requireActiveRoom(store, roomId);
   const owner = assertString(data.owner, "owner");
   const target = assertString(data.target, "target");
@@ -241,12 +281,12 @@ export function kickMember(roomId: string, data: Record<string, unknown>) {
   store.room_members = store.room_members.map((member) =>
     member.room_id === roomId && member.nickname === target ? { ...member, active: false } : member,
   );
-  saveStore(store);
+  await saveStore(store);
   return { room: roomSummary(store, room) };
 }
 
-export function deleteRoom(roomId: string, data: Record<string, unknown>) {
-  const store = loadStore();
+export async function deleteRoom(roomId: string, data: Record<string, unknown>) {
+  const store = await loadStore();
   const room = requireActiveRoom(store, roomId);
   const owner = assertString(data.owner, "owner");
   if (owner !== room.owner) {
@@ -258,12 +298,12 @@ export function deleteRoom(roomId: string, data: Record<string, unknown>) {
     member.room_id === roomId ? { ...member, active: false } : member,
   );
   const shareCount = store.messages.filter((message) => message.room_id === roomId).length * NODE_IDS.length;
-  saveStore(store);
+  await saveStore(store);
   return { status: "success", archived_shares: shareCount };
 }
 
-export function restoreRoom(roomId: string, data: Record<string, unknown>) {
-  const store = loadStore();
+export async function restoreRoom(roomId: string, data: Record<string, unknown>) {
+  const store = await loadStore();
   const room = store.rooms.find((item) => item.id === roomId);
   if (!room) {
     throw makeError(404, "Room not found");
@@ -278,12 +318,12 @@ export function restoreRoom(roomId: string, data: Record<string, unknown>) {
 
   room.destroyed_at = null;
   previousMember.active = true;
-  saveStore(store);
+  await saveStore(store);
   return { room: roomSummary(store, room) };
 }
 
-export function postMessage(data: Record<string, unknown>) {
-  const store = loadStore();
+export async function postMessage(data: Record<string, unknown>) {
+  const store = await loadStore();
   const sender = assertString(data.sender, "sender");
   const roomId = assertString(data.room_id, "room_id");
   const shares = Array.isArray(data.shares) ? data.shares : [];
@@ -307,18 +347,18 @@ export function postMessage(data: Record<string, unknown>) {
     }
   }
 
-  saveStore(store);
+  await saveStore(store);
   return { status: "success", message: "Shares distributed and archived successfully" };
 }
 
-export function getMessages(roomId: string) {
-  const store = loadStore();
+export async function getMessages(roomId: string) {
+  const store = await loadStore();
   requireActiveRoom(store, roomId);
   return { messages: fetchMessagePayloads(store, roomId) };
 }
 
-export function searchArchive(data: Record<string, unknown>) {
-  const store = loadStore();
+export async function searchArchive(data: Record<string, unknown>) {
+  const store = await loadStore();
   const nickname = assertString(data.nickname, "nickname", 1, 24);
   const roomName = assertString(data.room_name, "room_name", 1, 40);
   const startAt = typeof data.start_at === "string" ? data.start_at : null;
@@ -373,8 +413,8 @@ export function searchArchive(data: Record<string, unknown>) {
   return { results };
 }
 
-export function getDebugNodes() {
-  const store = loadStore();
+export async function getDebugNodes() {
+  const store = await loadStore();
   const activeRoomIds = new Set(store.rooms.filter((room) => room.destroyed_at === null).map((room) => room.id));
   return Object.fromEntries(
     NODE_IDS.map((nodeId) => [
@@ -391,8 +431,8 @@ export function getDebugNodes() {
   );
 }
 
-export function getAdminSnapshot() {
-  const store = loadStore();
+export async function getAdminSnapshot() {
+  const store = await loadStore();
   const shareCount = NODE_IDS.reduce((total, nodeId) => total + store.nodes[nodeId].length, 0);
 
   return {
@@ -419,8 +459,8 @@ export function getAdminSnapshot() {
   };
 }
 
-export function adminDeleteRoom(roomId: string) {
-  const store = loadStore();
+export async function adminDeleteRoom(roomId: string) {
+  const store = await loadStore();
   const room = store.rooms.find((item) => item.id === roomId);
   if (!room) {
     throw makeError(404, "Room not found");
@@ -439,7 +479,7 @@ export function adminDeleteRoom(roomId: string) {
     store.nodes[nodeId] = store.nodes[nodeId].filter((share) => share.room_id !== roomId);
   }
 
-  saveStore(store);
+  await saveStore(store);
   return {
     status: "success",
     deleted: {
@@ -450,7 +490,7 @@ export function adminDeleteRoom(roomId: string) {
   };
 }
 
-export function adminClearDatabase() {
-  saveStore(emptyStore());
+export async function adminClearDatabase() {
+  await saveStore(emptyStore());
   return { status: "success" };
 }

@@ -73,55 +73,55 @@ async function dispatch(request: NextRequest, method: string, path: string[]) {
   }
 
   if (method === "GET" && path.length === 2 && path[0] === "admin" && path[1] === "dashboard") {
-    return json(getAdminSnapshot());
+    return json(await getAdminSnapshot());
   }
 
   if (method === "DELETE" && path.length === 3 && path[0] === "admin" && path[1] === "rooms") {
-    return json(adminDeleteRoom(path[2]));
+    return json(await adminDeleteRoom(path[2]));
   }
 
   if (method === "DELETE" && path.length === 2 && path[0] === "admin" && path[1] === "db") {
-    return json(adminClearDatabase());
+    return json(await adminClearDatabase());
   }
 
   if (method === "GET" && path.length === 1 && path[0] === "rooms") {
-    return json(listRooms());
+    return json(await listRooms());
   }
 
   if (method === "POST" && path.length === 1 && path[0] === "rooms") {
-    return json(createRoom(await readJson(request)), 201);
+    return json(await createRoom(await readJson(request)), 201);
   }
 
   if (method === "POST" && path.length === 3 && path[0] === "rooms" && path[2] === "join") {
-    return json(joinRoom(path[1], await readJson(request)));
+    return json(await joinRoom(path[1], await readJson(request)));
   }
 
   if (method === "POST" && path.length === 3 && path[0] === "rooms" && path[2] === "kick") {
-    return json(kickMember(path[1], await readJson(request)));
+    return json(await kickMember(path[1], await readJson(request)));
   }
 
   if (method === "DELETE" && path.length === 2 && path[0] === "rooms") {
-    return json(deleteRoom(path[1], await readJson(request)));
+    return json(await deleteRoom(path[1], await readJson(request)));
   }
 
   if (method === "POST" && path.length === 3 && path[0] === "rooms" && path[2] === "restore") {
-    return json(restoreRoom(path[1], await readJson(request)));
+    return json(await restoreRoom(path[1], await readJson(request)));
   }
 
   if (method === "POST" && path.length === 1 && path[0] === "messages") {
-    return json(postMessage(await readJson(request)));
+    return json(await postMessage(await readJson(request)));
   }
 
   if (method === "GET" && path.length === 2 && path[0] === "messages") {
-    return json(getMessages(path[1]));
+    return json(await getMessages(path[1]));
   }
 
   if (method === "POST" && path.length === 2 && path[0] === "archive" && path[1] === "search") {
-    return json(searchArchive(await readJson(request)));
+    return json(await searchArchive(await readJson(request)));
   }
 
   if (method === "GET" && path.length === 2 && path[0] === "debug" && path[1] === "nodes") {
-    return json(getDebugNodes());
+    return json(await getDebugNodes());
   }
 
   return json({ detail: "Not found" }, 404);
