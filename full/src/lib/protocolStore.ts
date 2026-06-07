@@ -390,3 +390,67 @@ export function getDebugNodes() {
     ]),
   );
 }
+
+export function getAdminSnapshot() {
+  const store = loadStore();
+  const shareCount = NODE_IDS.reduce((total, nodeId) => total + store.nodes[nodeId].length, 0);
+
+  return {
+    stats: {
+      rooms: store.rooms.length,
+      active_rooms: store.rooms.filter((room) => room.destroyed_at === null).length,
+      members: store.room_members.length,
+      active_members: store.room_members.filter((member) => member.active).length,
+      messages: store.messages.length,
+      shares: shareCount,
+    },
+    rooms: store.rooms
+      .slice()
+      .sort((a, b) => b.created_at.localeCompare(a.created_at))
+      .map((room) => ({
+        ...roomSummary(store, room),
+        message_count: store.messages.filter((message) => message.room_id === room.id).length,
+        share_count: NODE_IDS.reduce(
+          (total, nodeId) => total + store.nodes[nodeId].filter((share) => share.room_id === room.id).length,
+          0,
+        ),
+      })),
+    db: store,
+  };
+}
+
+export function adminDeleteRoom(roomId: string) {
+  const store = loadStore();
+  const room = store.rooms.find((item) => item.id === roomId);
+  if (!room) {
+    throw makeError(404, "Room not found");
+  }
+
+  const deletedMessages = store.messages.filter((message) => message.room_id === roomId).length;
+  const deletedShares = NODE_IDS.reduce(
+    (total, nodeId) => total + store.nodes[nodeId].filter((share) => share.room_id === roomId).length,
+    0,
+  );
+
+  store.rooms = store.rooms.filter((item) => item.id !== roomId);
+  store.room_members = store.room_members.filter((member) => member.room_id !== roomId);
+  store.messages = store.messages.filter((message) => message.room_id !== roomId);
+  for (const nodeId of NODE_IDS) {
+    store.nodes[nodeId] = store.nodes[nodeId].filter((share) => share.room_id !== roomId);
+  }
+
+  saveStore(store);
+  return {
+    status: "success",
+    deleted: {
+      rooms: 1,
+      messages: deletedMessages,
+      shares: deletedShares,
+    },
+  };
+}
+
+export function adminClearDatabase() {
+  saveStore(emptyStore());
+  return { status: "success" };
+}

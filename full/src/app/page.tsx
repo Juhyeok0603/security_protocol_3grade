@@ -1,6 +1,7 @@
 ﻿"use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import axios from "axios";
 import { combineMessage, splitMessage } from "../utils/secret";
 
@@ -362,15 +363,20 @@ export default function Home() {
                 메타데이터와 share는 아카이브에 남아, 본인 메시지 주변 대화만 복원할 수 있습니다.
               </p>
             </div>
-            <label className="flex w-full max-w-sm flex-col gap-2 text-sm text-gray-300">
-              닉네임
-              <input
-                value={nickname}
-                onChange={(e) => setNickname(e.target.value)}
-                placeholder="사용자 이름"
-                className="h-12 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-4 text-white outline-none transition focus:border-[var(--color-accent)]"
-              />
-            </label>
+            <div className="flex w-full max-w-sm flex-col gap-3">
+              <Link href="/admin" className="self-start text-sm text-[var(--color-accent)] hover:underline md:self-end">
+                관리자 로그인
+              </Link>
+              <label className="flex flex-col gap-2 text-sm text-gray-300">
+                닉네임
+                <input
+                  value={nickname}
+                  onChange={(e) => setNickname(e.target.value)}
+                  placeholder="사용자 이름"
+                  className="h-12 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-4 text-white outline-none transition focus:border-[var(--color-accent)]"
+                />
+              </label>
+            </div>
           </header>
 
           <div className="flex flex-col gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-3 text-sm md:flex-row md:items-center md:justify-between">

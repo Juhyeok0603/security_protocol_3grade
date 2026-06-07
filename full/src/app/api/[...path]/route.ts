@@ -1,7 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
+  clearAdminSessionCookie,
+  hasAdminSession,
+  isAdminCredential,
+  setAdminSessionCookie,
+} from "@/lib/adminAuth";
+import {
+  adminClearDatabase,
+  adminDeleteRoom,
   createRoom,
   deleteRoom,
+  getAdminSnapshot,
   getDebugNodes,
   getMessages,
   handleApiError,
@@ -34,7 +43,47 @@ function json(data: unknown, status = 200) {
   return NextResponse.json(data, { status });
 }
 
+async function requireAdmin() {
+  if (!(await hasAdminSession())) {
+    throw { status: 401, detail: "Admin login required" };
+  }
+}
+
 async function dispatch(request: NextRequest, method: string, path: string[]) {
+  if (method === "POST" && path.length === 2 && path[0] === "admin" && path[1] === "login") {
+    const data = await readJson(request);
+    if (!isAdminCredential(data.username, data.password)) {
+      return json({ detail: "Invalid admin credentials" }, 401);
+    }
+    await setAdminSessionCookie();
+    return json({ status: "success" });
+  }
+
+  if (method === "POST" && path.length === 2 && path[0] === "admin" && path[1] === "logout") {
+    await clearAdminSessionCookie();
+    return json({ status: "success" });
+  }
+
+  if (method === "GET" && path.length === 2 && path[0] === "admin" && path[1] === "session") {
+    return json({ authenticated: await hasAdminSession() });
+  }
+
+  if (path[0] === "admin") {
+    await requireAdmin();
+  }
+
+  if (method === "GET" && path.length === 2 && path[0] === "admin" && path[1] === "dashboard") {
+    return json(getAdminSnapshot());
+  }
+
+  if (method === "DELETE" && path.length === 3 && path[0] === "admin" && path[1] === "rooms") {
+    return json(adminDeleteRoom(path[2]));
+  }
+
+  if (method === "DELETE" && path.length === 2 && path[0] === "admin" && path[1] === "db") {
+    return json(adminClearDatabase());
+  }
+
   if (method === "GET" && path.length === 1 && path[0] === "rooms") {
     return json(listRooms());
   }
