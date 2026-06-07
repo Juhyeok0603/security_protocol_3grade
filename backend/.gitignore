@@ -1,8 +1,0 @@
-chat_archive.db
-
-node1_shares.db
-node2_shares.db
-node3_shares.db
-
-uvicorn.err.log
-uvicorn.out.log
